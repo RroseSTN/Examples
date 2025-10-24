@@ -1,101 +1,87 @@
 spring:
   application:
-    name: kafka-message-processor
+    name: ${APP_NAME:kafka-message-processor}
   
   cloud:
     vault:
-      host: vault.example.com
-      port: 8200
-      scheme: https
-      authentication: TOKEN
-      token: your-vault-token
+      host: ${VAULT_HOST}
+      port: ${VAULT_PORT:8200}
+      scheme: ${VAULT_SCHEME:https}
+      authentication: ${VAULT_AUTH_METHOD:*****}
+      token: ${VAULT_T}
       kv:
         enabled: true
-        backend: secret
-        default-context: application
+        backend: ${VAULT_B:*****}
+        default-context: ${VAULT_CONTEXT:*****}
       fail-fast: true
-      connection-timeout: 5000
-      read-timeout: 15000
+      connection-timeout: ${VAULT_CONN_TIMEOUT:5000}
+      read-timeout: ${VAULT_READ_TIMEOUT:15000}
 
 vault:
-  secret:
-    kafka-path: secret/kafka/credentials
+  S:
+    kafka-path: ${VAULT_K_PATH:*****}
 
   kafka:
-    bootstrap-servers: localhost:9092
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS}
     consumer:
-      group-id: kafka-message-processor-group
-      max-poll-records: 500
-      heartbeat-interval: 3000
-      session-timeout-ms: 30000
-      max-poll-interval-ms: 300000
-      auto-offset-reset: earliest
+      group-id: ${KAFKA_CONSUMER_GROUP:kafka-message-processor-group}
+      max-poll-records: ${KAFKA_MAX_POLL_RECORDS:500}
+      heartbeat-interval: ${KAFKA_HEARTBEAT_INTERVAL:3000}
+      session-timeout-ms: ${KAFKA_SESSION_TIMEOUT:30000}
+      max-poll-interval-ms: ${KAFKA_MAX_POLL_INTERVAL:300000}
+      auto-offset-reset: ${KAFKA_AUTO_OFFSET_RESET:earliest}
       enable:
         auto:
           commit: false
       partition:
         assignment:
-          strategy: org.apache.kafka.clients.consumer.RoundRobinAssignor
+          strategy: ${KAFKA_PARTITION_STRATEGY:org.apache.kafka.clients.consumer.RoundRobinAssignor}
       metadata:
         max:
           age:
-            ms: 30000
+            ms: ${KAFKA_METADATA_MAX_AGE:30000}
     listener:
       missing-topics-fatal: false
-      concurrency: 30  # 60 partitions / 2 consumers per DC
+      concurrency: ${KAFKA_CONCURRENCY:30}  # Total partitions / consumers per DC
       ack-mode: MANUAL
-      shutdown-timeout: 120000  # 2 minutes in milliseconds
+      shutdown-timeout: ${KAFKA_SHUTDOWN_TIMEOUT:120000}
 
   datasource:
-    url: jdbc:h2:mem:testdb
-    driverClassName: org.h2.Driver
-    username: sa
-    password: ''
+    url: ${DB_URL:*****}
+    driverClassName: ${DB_DRIVER:*****}
+    U: ${DB_U:*****}
+    P: ${DB_P:*****}
   jpa:
-    database-platform: org.hibernate.dialect.H2Dialect
+    database-platform: ${JPA_DIALECT:org.hibernate.dialect.H2Dialect}
     hibernate:
-      ddl-auto: update
-    show-sql: false
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    show-sql: ${JPA_SHOW_SQL:false}
     properties:
       hibernate:
-        format_sql: true
+        format_sql: ${JPA_FORMAT_SQL:true}
   h2:
     console:
-      enabled: true
-      path: /h2-console
+      enabled: ${H2_CONSOLE_ENABLED:false}
+      path: ${H2_CONSOLE_PATH:/h2-console}
 
 kafka:
   topic:
-    name: your-topic-name
-    partitions: 60  # Total number of partitions
-    consumers-per-dc: 2  # Number of consumers per DC
+    name: ${KAFKA_TOPIC_NAME}
+    partitions: ${KAFKA_PARTITIONS:60}
+    consumers-per-dc: ${KAFKA_CONSUMERS_PER_DC:2}
     health-check:
-      enabled: true
-      interval: 30000  # 30 seconds in milliseconds
+      enabled: ${KAFKA_HEALTH_CHECK_ENABLED:true}
+      interval: ${KAFKA_HEALTH_CHECK_INTERVAL:30000}
     route-away:
-      check-interval: 30000  # 30 seconds in milliseconds
-      shutdown-timeout: 120000  # 2 minutes in milliseconds
+      check-interval: ${KAFKA_ROUTE_AWAY_CHECK_INTERVAL:30000}
+      shutdown-timeout: ${KAFKA_ROUTE_AWAY_SHUTDOWN_TIMEOUT:120000}
 
 app:
   processing:
     message-tracking:
-      enabled: true
+      enabled: ${MESSAGE_TRACKING_ENABLED:true}
     metrics:
-      reporting-interval: 30000  # 30 seconds in milliseconds
-    retry:
-      attempts: 172800  # 48 hours worth of attempts
-      max-duration: 172800000  # 48 hours in milliseconds
-      backoff:
-        initial-interval: 1000   # 1 second in milliseconds
-        multiplier: 1.0         # Fixed delay
-        max-interval: 1000      # Keep it at 1 second
-      topic:
-        retry-suffix: "-retry"
-        dlt-suffix: "-error"
-        provisioning:
-          enabled: true
-          partitions: 60
-          replicas: 3
+      reporting-interval: ${METRICS_REPORTING_INTERVAL:30000}
 
 logging:
   level:

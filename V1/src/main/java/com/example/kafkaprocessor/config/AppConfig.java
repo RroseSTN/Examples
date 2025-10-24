@@ -12,7 +12,6 @@ import org.springframework.context.annotation.Configuration;
 public class AppConfig {
     private MessageTrackingConfig messageTracking;
     private MetricsConfig metrics;
-    private RetryConfig retry;
     
     @Getter
     @Setter
@@ -24,12 +23,5 @@ public class AppConfig {
     @Setter
     public static class MetricsConfig {
         private int reportingInterval;
-    }
-    
-    @Getter
-    @Setter
-    public static class RetryConfig {
-        private long maxDuration;
-        private int backoffInterval;
     }
 }

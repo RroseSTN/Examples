@@ -11,8 +11,6 @@ import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.support.Acknowledgment;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.springframework.kafka.annotation.KafkaListener;
-import org.springframework.kafka.annotation.RetryableTopic;
-import org.springframework.retry.annotation.Backoff;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import reactor.core.publisher.Mono;
@@ -30,11 +28,7 @@ public abstract class AbstractSpringKafkaService {
     @Value("${kafka.topic.route-away.shutdown-timeout}")
     private int shutdownTimeoutMs;
     
-    @Value("${app.processing.retry.max-duration}")
-    private long retryMaxDuration;
-    
-    @Value("${app.processing.retry.backoff.initial-interval}")
-    private int retryBackoffInterval;
+    // Removed unused retry configuration fields since we're using network-level retry
     
     @Autowired
     private DBRepository dbRepository;
@@ -61,9 +55,7 @@ public abstract class AbstractSpringKafkaService {
         log.info("Kafka message processor initialized with:");
         log.info("- Shutdown timeout: {} ms", shutdownTimeoutMs);
         log.info("- Manual commit mode enabled");
-        log.info("- Retry configuration: {} ms max duration with {} ms backoff",
-                retryMaxDuration,
-                retryBackoffInterval);
+        log.info("- Network-level retry enabled");
         log.info("- Initial RouteAwayFlag: {}", routeAwayFlag.get());
     }
     
