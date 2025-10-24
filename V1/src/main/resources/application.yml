@@ -70,10 +70,16 @@ kafka:
       name: ${KAFKA_JSON_TOPIC_NAME}
       partitions: ${KAFKA_PARTITIONS:60}
       consumers-per-dc: ${KAFKA_CONSUMERS_PER_DC:2}
+      retry-interval-ms: ${KAFKA_JSON_RETRY_INTERVAL:30000}
+      session-timeout-ms: ${KAFKA_JSON_SESSION_TIMEOUT:60000}
+      heartbeat-interval-ms: ${KAFKA_JSON_HEARTBEAT_INTERVAL:20000}
     avro:
       name: ${KAFKA_AVRO_TOPIC_NAME}
       partitions: ${KAFKA_PARTITIONS:60}
       consumers-per-dc: ${KAFKA_CONSUMERS_PER_DC:2}
+      retry-interval-ms: ${KAFKA_AVRO_RETRY_INTERVAL:30000}
+      session-timeout-ms: ${KAFKA_AVRO_SESSION_TIMEOUT:60000}
+      heartbeat-interval-ms: ${KAFKA_AVRO_HEARTBEAT_INTERVAL:20000}
     health-check:
       enabled: ${KAFKA_HEALTH_CHECK_ENABLED:true}
       interval: ${KAFKA_HEALTH_CHECK_INTERVAL:30000}

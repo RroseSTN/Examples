@@ -73,13 +73,13 @@ public class DBRepository {
     }
 
     @Transactional
-    public void saveFailedMessage(ConsumerRecord<String, String> record, String errorMessage, int retryCount, String applicationTraceId) {
+    public <T> void saveFailedMessage(ConsumerRecord<String, T> record, String errorMessage, int retryCount, String applicationTraceId) {
         FailedMessage failedMessage = new FailedMessage();
         failedMessage.setTopic(record.topic());
         failedMessage.setPartition(record.partition());
         failedMessage.setOffset(record.offset());
         failedMessage.setKey(record.key());
-        failedMessage.setValue(record.value());
+        failedMessage.setValue(record.value().toString());
         failedMessage.setErrorMessage(errorMessage);
         failedMessage.setFailureTime(LocalDateTime.now());
         failedMessage.setRetryCount(retryCount);

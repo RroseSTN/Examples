@@ -67,9 +67,14 @@ public class AvroKafkaConfig {
         return String.valueOf(listenerConcurrency);
     }
 
-    private static final long RETRY_INTERVAL_MS = 30000L; // 30 seconds
-    private static final int SESSION_TIMEOUT_MS = 60000; // 60 seconds
-    private static final int HEARTBEAT_INTERVAL_MS = 20000; // 20 seconds
+    @Value("${kafka.topic.avro.retry-interval-ms}")
+    private long retryIntervalMs;
+    
+    @Value("${kafka.topic.avro.session-timeout-ms}")
+    private int sessionTimeoutMs;
+    
+    @Value("${kafka.topic.avro.heartbeat-interval-ms}")
+    private int heartbeatIntervalMs;
 
     @Autowired
     private VaultAuthenticationProvider vaultAuthenticationProvider;
@@ -87,19 +92,19 @@ public class AvroKafkaConfig {
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1);
         
         // Network retry configuration - retry every 30 seconds indefinitely
-        props.put(ConsumerConfig.RECONNECT_BACKOFF_MS_CONFIG, RETRY_INTERVAL_MS);
-        props.put(ConsumerConfig.RECONNECT_BACKOFF_MAX_MS_CONFIG, RETRY_INTERVAL_MS);
-        props.put(ConsumerConfig.RETRY_BACKOFF_MS_CONFIG, RETRY_INTERVAL_MS);
+        props.put(ConsumerConfig.RECONNECT_BACKOFF_MS_CONFIG, retryIntervalMs);
+        props.put(ConsumerConfig.RECONNECT_BACKOFF_MAX_MS_CONFIG, retryIntervalMs);
+        props.put(ConsumerConfig.RETRY_BACKOFF_MS_CONFIG, retryIntervalMs);
         
         // Connection timeouts and monitoring
-        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, SESSION_TIMEOUT_MS);
-        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, HEARTBEAT_INTERVAL_MS);
-        props.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, RETRY_INTERVAL_MS);
+        props.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, sessionTimeoutMs);
+        props.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, heartbeatIntervalMs);
+        props.put(ConsumerConfig.REQUEST_TIMEOUT_MS_CONFIG, retryIntervalMs);
         props.put(ConsumerConfig.MAX_POLL_INTERVAL_MS_CONFIG, 300000); // 5 minutes
         
         // Connection error handling
         props.put(ConsumerConfig.CONNECTIONS_MAX_IDLE_MS_CONFIG, -1); // Disable idle timeout
-        props.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, RETRY_INTERVAL_MS);
+        props.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, retryIntervalMs);
 
         // AVRO specific configuration
         props.put("schema.registry.url", "${SCHEMA_REGISTRY_URL:*****}");
@@ -147,7 +152,7 @@ public class AvroKafkaConfig {
         factory.getContainerProperties().setSyncCommits(false);
         
         // Network recovery settings
-        factory.getContainerProperties().setIdleEventInterval(RETRY_INTERVAL_MS);
+        factory.getContainerProperties().setIdleEventInterval(retryIntervalMs);
         factory.setConcurrency(listenerConcurrency);
         
         // Set restart policy to always retry

@@ -1,6 +1,7 @@
 package com.example.kafkaprocessor.service;
 
 import com.example.kafkaprocessor.model.Command;
+import com.example.kafkaprocessor.model.CommandEvent;
 import com.example.kafkaprocessor.model.EventProcessorResult;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.stereotype.Service;
@@ -14,7 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 
 @Service
 @Log4j2
-public class JsonKafkaListenerService extends AbstractSpringKafkaListener {
+public class JsonKafkaListenerService extends AbstractSpringKafkaListener<CommandEvent<String>> {
     
     @Autowired
     private ObjectMapper objectMapper;
@@ -27,49 +28,45 @@ public class JsonKafkaListenerService extends AbstractSpringKafkaListener {
     public void consumeMessage(ConsumerRecord<String, String> record, 
                              Acknowledgment acknowledgment, 
                              Consumer<?, ?> consumer) {
-        processMessage(record, acknowledgment)
-            .doOnError(e -> log.error("Error processing JSON message: {}", e.getMessage(), e))
-            .subscribe(
-                null, 
-                error -> {
-                    // Log the error but don't rethrow - let the error handling in processMessage handle retries
-                    log.error("Unhandled error in JSON message processing: {}", error.getMessage(), error);
-                }
-            );
-    }
-
-    @Override
-    public Mono<EventProcessorResult> receiveEvent(String applicationTraceId, String message) {
+        String message = record.value();
         try {
-            Command command = objectMapper.readValue(message, Command.class);
-            return Mono.just(EventProcessorResult.success(command));
+            CommandEvent<String> commandEvent = CommandEvent.<String>builder()
+                .id(record.key())
+                .eventData(message)
+                .build();
+            
+            ConsumerRecord<String, CommandEvent<String>> wrappedRecord = new ConsumerRecord<>(
+                record.topic(),
+                record.partition(),
+                record.offset(),
+                record.key(),
+                commandEvent
+            );
+            
+            processMessage(wrappedRecord, acknowledgment)
+                .doOnError(e -> log.error("Error processing JSON message: {}", e.getMessage(), e))
+                .subscribe(
+                    null, 
+                    error -> {
+                        log.error("Unhandled error in JSON message processing: {}", error.getMessage(), error);
+                    }
+                );
         } catch (Exception e) {
-            log.error("Failed to parse JSON message: {}", e.getMessage());
-            return Mono.just(EventProcessorResult.failure("Failed to parse JSON message: " + e.getMessage()));
+            log.error("Failed to wrap message into CommandEvent: {}", e.getMessage(), e);
+            acknowledgment.acknowledge();
         }
     }
 
     @Override
-    public Mono<EventProcessorResult> executeReceive(String applicationTraceId, Command command) {
-        log.info("Executing receive for JSON message: {}", applicationTraceId);
-        return Mono.just(EventProcessorResult.success(command));
-    }
-
-    @Override
-    public Mono<EventProcessorResult> acceptEvent(String applicationTraceId, Command command) {
-        log.info("Accepting JSON event: {}", applicationTraceId);
-        return Mono.just(EventProcessorResult.success(command));
-    }
-
-    @Override
-    public Mono<EventProcessorResult> processEvent(String applicationTraceId, Command command) {
-        log.info("Processing JSON event: {}", applicationTraceId);
-        return Mono.just(EventProcessorResult.success(command));
-    }
-
-    @Override
-    public Mono<EventProcessorResult> validateEvent(String applicationTraceId, Command command) {
-        log.info("Validating JSON event: {}", applicationTraceId);
-        return Mono.just(EventProcessorResult.success(command));
+    protected Mono<EventProcessorResult> receiveEvent(String applicationTraceId, CommandEvent<String> commandEvent) {
+        log.info("Receiving JSON event for trace ID: {}", applicationTraceId);
+        try {
+            Command command = objectMapper.readValue(commandEvent.getEventData(), Command.class);
+            log.debug("JSON message received for processing: {}", applicationTraceId);
+            return Mono.just(EventProcessorResult.success(command));
+        } catch (Exception e) {
+            log.error("Error in receiveEvent for trace ID {}: {}", applicationTraceId, e.getMessage(), e);
+            return Mono.just(EventProcessorResult.failure("Failed to parse JSON message: " + e.getMessage()));
+        }
     }
 }

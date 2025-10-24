@@ -26,7 +26,7 @@ public class FailedMessage {
     private Long offset;
     private String key;
     
-    @Column(length = 4000)
+    @Column(columnDefinition = "TEXT")
     private String value;
     
     @Column(length = 4000)

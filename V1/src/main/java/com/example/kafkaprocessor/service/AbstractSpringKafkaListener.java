@@ -1,6 +1,7 @@
 package com.example.kafkaprocessor.service;
 
 import com.example.kafkaprocessor.model.Command;
+import com.example.kafkaprocessor.model.CommandEvent;
 import com.example.kafkaprocessor.model.EventProcessorResult;
 import com.example.kafkaprocessor.repository.DBRepository;
 import lombok.extern.log4j.Log4j2;
@@ -19,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Log4j2
-public abstract class AbstractSpringKafkaListener {
+public abstract class AbstractSpringKafkaListener<T> {
 
     @Value("${kafka.topic.partitions}")
     private int partitionCount;
@@ -80,7 +81,7 @@ public abstract class AbstractSpringKafkaListener {
         });
     }
 
-    protected Mono<Void> processMessage(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
+    protected Mono<Void> processMessage(ConsumerRecord<String, T> record, Acknowledgment acknowledgment) {
         log.debug("Processing message from Topic: {}, Partition: {}, Offset: {}", 
                 record.topic(), record.partition(), record.offset());
 
@@ -92,36 +93,36 @@ public abstract class AbstractSpringKafkaListener {
         return Mono.defer(() -> {
             messageProcessingCount.incrementAndGet();
             String applicationTraceId = record.key();
-            String message = record.value();
+            T message = record.value();
             
-            return receiveEvent(applicationTraceId, message)
+            return doReceiveEvent(applicationTraceId, message)
                 .flatMap(result -> {
                     if (!"Success".equals(result.getEventProcessorResultStatus())) {
                         log.error("Failed to receive message for trace ID: {}: {}", applicationTraceId, result.getMessage());
                         return Mono.just(result);
                     }
-                    return validateEvent(applicationTraceId, result.getCommand());
+                    return doValidateEvent(applicationTraceId, result.getCommand());
                 })
                 .flatMap(result -> {
                     if (!"Success".equals(result.getEventProcessorResultStatus())) {
                         log.error("Failed to validate message for trace ID: {}: {}", applicationTraceId, result.getMessage());
                         return Mono.just(result);
                     }
-                    return executeReceive(applicationTraceId, result.getCommand());
+                    return doExecuteReceive(applicationTraceId, result.getCommand());
                 })
                 .flatMap(result -> {
                     if (!"Success".equals(result.getEventProcessorResultStatus())) {
                         log.error("Failed to execute message for trace ID: {}: {}", applicationTraceId, result.getMessage());
                         return Mono.just(result);
                     }
-                    return acceptEvent(applicationTraceId, result.getCommand());
+                    return doAcceptEvent(applicationTraceId, result.getCommand());
                 })
                 .flatMap(result -> {
                     if (!"Success".equals(result.getEventProcessorResultStatus())) {
                         log.error("Failed to accept message for trace ID: {}: {}", applicationTraceId, result.getMessage());
                         return Mono.just(result);
                     }
-                    return processEvent(applicationTraceId, result.getCommand());
+                    return doProcessEvent(applicationTraceId, result.getCommand());
                 })
                 .doOnNext(result -> {
                     if ("Success".equals(result.getEventProcessorResultStatus())) {
@@ -242,10 +243,79 @@ public abstract class AbstractSpringKafkaListener {
         log.info("Kafka listener shutdown complete");
     }
 
-    // Abstract methods to be implemented by concrete classes
-    public abstract Mono<EventProcessorResult> receiveEvent(String applicationTraceId, String message);
-    public abstract Mono<EventProcessorResult> validateEvent(String applicationTraceId, Command command);
-    public abstract Mono<EventProcessorResult> executeReceive(String applicationTraceId, Command command);
-    public abstract Mono<EventProcessorResult> acceptEvent(String applicationTraceId, Command command);
-    public abstract Mono<EventProcessorResult> processEvent(String applicationTraceId, Command command);
+    // Private implementation methods
+    private Mono<EventProcessorResult> doReceiveEvent(String applicationTraceId, T message) {
+        return receiveEvent(applicationTraceId, message);
+    }
+
+    private Mono<EventProcessorResult> doValidateEvent(String applicationTraceId, Command command) {
+        return validateEvent(applicationTraceId, command);
+    }
+
+    private Mono<EventProcessorResult> doExecuteReceive(String applicationTraceId, Command command) {
+        return executeReceive(applicationTraceId, command);
+    }
+
+    private Mono<EventProcessorResult> doAcceptEvent(String applicationTraceId, Command command) {
+        return acceptEvent(applicationTraceId, command);
+    }
+
+    private Mono<EventProcessorResult> doProcessEvent(String applicationTraceId, Command command) {
+        return processEvent(applicationTraceId, command);
+    }
+
+    // Protected methods with default implementations that can be overridden if needed
+    protected Mono<EventProcessorResult> receiveEvent(String applicationTraceId, T message) {
+        log.info("Receiving event for trace ID: {}", applicationTraceId);
+        try {
+            CommandEvent<T> commandEvent = (CommandEvent<T>) message;
+            return Mono.just(EventProcessorResult.success(Command.builder()
+                    .id(applicationTraceId)
+                    .payload(commandEvent)
+                    .build()));
+        } catch (Exception e) {
+            log.error("Error in receiveEvent for trace ID {}: {}", applicationTraceId, e.getMessage(), e);
+            return Mono.just(EventProcessorResult.failure(e.getMessage()));
+        }
+    }
+
+    protected Mono<EventProcessorResult> validateEvent(String applicationTraceId, Command command) {
+        log.info("Validating event for trace ID: {}", applicationTraceId);
+        try {
+            return Mono.just(EventProcessorResult.success(command));
+        } catch (Exception e) {
+            log.error("Error in validateEvent for trace ID {}: {}", applicationTraceId, e.getMessage(), e);
+            return Mono.just(EventProcessorResult.failure(e.getMessage()));
+        }
+    }
+
+    protected Mono<EventProcessorResult> executeReceive(String applicationTraceId, Command command) {
+        log.info("Executing receive for trace ID: {}", applicationTraceId);
+        try {
+            return Mono.just(EventProcessorResult.success(command));
+        } catch (Exception e) {
+            log.error("Error in executeReceive for trace ID {}: {}", applicationTraceId, e.getMessage(), e);
+            return Mono.just(EventProcessorResult.failure(e.getMessage()));
+        }
+    }
+
+    protected Mono<EventProcessorResult> acceptEvent(String applicationTraceId, Command command) {
+        log.info("Accepting event for trace ID: {}", applicationTraceId);
+        try {
+            return Mono.just(EventProcessorResult.success(command));
+        } catch (Exception e) {
+            log.error("Error in acceptEvent for trace ID {}: {}", applicationTraceId, e.getMessage(), e);
+            return Mono.just(EventProcessorResult.failure(e.getMessage()));
+        }
+    }
+
+    protected Mono<EventProcessorResult> processEvent(String applicationTraceId, Command command) {
+        log.info("Processing event for trace ID: {}", applicationTraceId);
+        try {
+            return Mono.just(EventProcessorResult.success(command));
+        } catch (Exception e) {
+            log.error("Error in processEvent for trace ID {}: {}", applicationTraceId, e.getMessage(), e);
+            return Mono.just(EventProcessorResult.failure(e.getMessage()));
+        }
+    }
 }
