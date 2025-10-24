@@ -1,0 +1,112 @@
+spring:
+  application:
+    name: kafka-message-processor
+  
+  cloud:
+    vault:
+      host: vault.example.com
+      port: 8200
+      scheme: https
+      authentication: TOKEN
+      token: your-vault-token
+      kv:
+        enabled: true
+        backend: secret
+        default-context: application
+      fail-fast: true
+      connection-timeout: 5000
+      read-timeout: 15000
+
+vault:
+  secret:
+    kafka-path: secret/kafka/credentials
+
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: kafka-message-processor-group
+      max-poll-records: 500
+      heartbeat-interval: 3000
+      session-timeout-ms: 30000
+      max-poll-interval-ms: 300000
+      auto-offset-reset: earliest
+      enable:
+        auto:
+          commit: false
+      partition:
+        assignment:
+          strategy: org.apache.kafka.clients.consumer.RoundRobinAssignor
+      metadata:
+        max:
+          age:
+            ms: 30000
+    listener:
+      missing-topics-fatal: false
+      concurrency: 30  # 60 partitions / 2 consumers per DC
+      ack-mode: MANUAL
+      shutdown-timeout: 120000  # 2 minutes in milliseconds
+
+  datasource:
+    url: jdbc:h2:mem:testdb
+    driverClassName: org.h2.Driver
+    username: sa
+    password: ''
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+
+kafka:
+  topic:
+    name: your-topic-name
+    partitions: 60  # Total number of partitions
+    consumers-per-dc: 2  # Number of consumers per DC
+    health-check:
+      enabled: true
+      interval: 30000  # 30 seconds in milliseconds
+    route-away:
+      check-interval: 30000  # 30 seconds in milliseconds
+      shutdown-timeout: 120000  # 2 minutes in milliseconds
+
+app:
+  processing:
+    message-tracking:
+      enabled: true
+    metrics:
+      reporting-interval: 30000  # 30 seconds in milliseconds
+    retry:
+      attempts: 172800  # 48 hours worth of attempts
+      max-duration: 172800000  # 48 hours in milliseconds
+      backoff:
+        initial-interval: 1000   # 1 second in milliseconds
+        multiplier: 1.0         # Fixed delay
+        max-interval: 1000      # Keep it at 1 second
+      topic:
+        retry-suffix: "-retry"
+        dlt-suffix: "-error"
+        provisioning:
+          enabled: true
+          partitions: 60
+          replicas: 3
+
+logging:
+  level:
+    root: INFO
+    org.apache.kafka: INFO
+    org.springframework.kafka: INFO
+    com.example.kafkaprocessor: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/kafka-processor.log
+    max-size: 10MB
+    max-history: 7
