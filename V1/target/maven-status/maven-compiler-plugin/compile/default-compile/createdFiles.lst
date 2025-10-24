@@ -1,11 +1,14 @@
-com\example\kafkaprocessor\service\AbstractSpringKafkaService.class
+com\example\kafkaprocessor\service\AbstractSpringKafkaListener.class
 com\example\kafkaprocessor\config\KafkaConfig.class
 com\example\kafkaprocessor\model\Command.class
 com\example\kafkaprocessor\entity\FailedMessage.class
+com\example\kafkaprocessor\service\AvroKafkaListenerService.class
 com\example\kafkaprocessor\config\AppConfig$MetricsConfig.class
 com\example\kafkaprocessor\KafkaMessageProcessorApplication.class
+com\example\kafkaprocessor\entity\RouteAwayFlag$RouteAwayFlagBuilder.class
 com\example\kafkaprocessor\model\EventProcessorResult.class
 com\example\kafkaprocessor\config\KafkaConfig$1.class
+com\example\kafkaprocessor\config\AvroKafkaConfig.class
 com\example\kafkaprocessor\model\EventProcessorResult$EventProcessorResultBuilder.class
 com\example\kafkaprocessor\config\VaultAuthenticationProvider.class
 com\example\kafkaprocessor\entity\RouteAwayFlag.class
@@ -13,3 +16,6 @@ com\example\kafkaprocessor\model\Command$CommandBuilder.class
 com\example\kafkaprocessor\config\AppConfig.class
 com\example\kafkaprocessor\config\AppConfig$MessageTrackingConfig.class
 com\example\kafkaprocessor\repository\DBRepository.class
+com\example\kafkaprocessor\entity\FailedMessage$FailedMessageBuilder.class
+com\example\kafkaprocessor\config\AvroKafkaConfig$1.class
+com\example\kafkaprocessor\service\JsonKafkaListenerService.class

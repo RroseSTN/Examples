@@ -66,9 +66,14 @@ vault:
 
 kafka:
   topic:
-    name: ${KAFKA_TOPIC_NAME}
-    partitions: ${KAFKA_PARTITIONS:60}
-    consumers-per-dc: ${KAFKA_CONSUMERS_PER_DC:2}
+    json:
+      name: ${KAFKA_JSON_TOPIC_NAME}
+      partitions: ${KAFKA_PARTITIONS:60}
+      consumers-per-dc: ${KAFKA_CONSUMERS_PER_DC:2}
+    avro:
+      name: ${KAFKA_AVRO_TOPIC_NAME}
+      partitions: ${KAFKA_PARTITIONS:60}
+      consumers-per-dc: ${KAFKA_CONSUMERS_PER_DC:2}
     health-check:
       enabled: ${KAFKA_HEALTH_CHECK_ENABLED:true}
       interval: ${KAFKA_HEALTH_CHECK_INTERVAL:30000}

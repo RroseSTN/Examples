@@ -1,9 +1,9 @@
 package com.example.kafkaprocessor.config;
 
+import io.confluent.kafka.serializers.KafkaAvroDeserializer;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.clients.consumer.ConsumerRebalanceListener;
 import org.apache.kafka.common.TopicPartition;
-import org.apache.kafka.common.serialization.StringDeserializer;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -23,12 +23,12 @@ import jakarta.annotation.PostConstruct;
 @Configuration
 @EnableKafka
 @Log4j2
-public class KafkaConfig {
+public class AvroKafkaConfig {
     
-    @Value("${kafka.topic.json.partitions}")
+    @Value("${kafka.topic.avro.partitions}")
     private int totalPartitions;
     
-    @Value("${kafka.topic.json.consumers-per-dc}")
+    @Value("${kafka.topic.avro.consumers-per-dc}")
     private int consumersPerDc;
     
     @Value("${spring.kafka.listener.concurrency}")
@@ -38,12 +38,12 @@ public class KafkaConfig {
     public void validateConfiguration() {
         int expectedConcurrency = totalPartitions / consumersPerDc;
         if (listenerConcurrency != expectedConcurrency) {
-            log.warn("WARNING: JSON Listener concurrency misconfigured!");
+            log.warn("WARNING: AVRO Listener concurrency misconfigured!");
             log.warn("Current concurrency: {}, Expected: {} ({} partitions / {} consumers per DC)", 
                     listenerConcurrency, expectedConcurrency, totalPartitions, consumersPerDc);
             log.warn("This may lead to suboptimal partition distribution!");
         } else {
-            log.info("JSON Kafka concurrency validated: {} threads for {} partitions with {} consumers per DC", 
+            log.info("AVRO Kafka concurrency validated: {} threads for {} partitions with {} consumers per DC", 
                     listenerConcurrency, totalPartitions, consumersPerDc);
         }
     }
@@ -54,16 +54,16 @@ public class KafkaConfig {
     @Value("${spring.kafka.consumer.group-id}")
     private String groupId;
 
-    @Value("${kafka.topic.json.name}")
+    @Value("${kafka.topic.avro.name}")
     private String topicName;
 
     @Bean
-    public String jsonKafkaTopicName() {
+    public String avroKafkaTopicName() {
         return topicName;
     }
     
     @Bean
-    public String jsonKafkaListenerConcurrency() {
+    public String avroKafkaListenerConcurrency() {
         return String.valueOf(listenerConcurrency);
     }
 
@@ -75,16 +75,14 @@ public class KafkaConfig {
     private VaultAuthenticationProvider vaultAuthenticationProvider;
 
     @Bean
-    public ConsumerFactory<String, String> consumerFactory() {
-        return new DefaultKafkaConsumerFactory<>(getConsumerProperties(), 
-            new StringDeserializer(), 
-            new StringDeserializer());
+    public ConsumerFactory<String, Object> avroConsumerFactory() {
+        return new DefaultKafkaConsumerFactory<>(getAvroConsumerProperties());
     }
 
-    private Map<String, Object> getConsumerProperties() {
+    private Map<String, Object> getAvroConsumerProperties() {
         Map<String, Object> props = new HashMap<>();
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId);
+        props.put(ConsumerConfig.GROUP_ID_CONFIG, groupId + "-avro");
         props.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false);
         props.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 1);
         
@@ -102,6 +100,12 @@ public class KafkaConfig {
         // Connection error handling
         props.put(ConsumerConfig.CONNECTIONS_MAX_IDLE_MS_CONFIG, -1); // Disable idle timeout
         props.put(ConsumerConfig.METADATA_MAX_AGE_CONFIG, RETRY_INTERVAL_MS);
+
+        // AVRO specific configuration
+        props.put("schema.registry.url", "${SCHEMA_REGISTRY_URL:*****}");
+        props.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class);
+        props.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class);
+        props.put("specific.avro.reader", true);
 
         // Security settings
         props.put("security.protocol", "SASL_PLAINTEXT");
@@ -128,9 +132,9 @@ public class KafkaConfig {
     private int shutdownTimeoutMs;
 
     @Bean
-    public ConcurrentKafkaListenerContainerFactory<String, String> kafkaListenerContainerFactory() {
-        ConcurrentKafkaListenerContainerFactory<String, String> factory = new ConcurrentKafkaListenerContainerFactory<>();
-        factory.setConsumerFactory(consumerFactory());
+    public ConcurrentKafkaListenerContainerFactory<String, Object> avroKafkaListenerContainerFactory() {
+        ConcurrentKafkaListenerContainerFactory<String, Object> factory = new ConcurrentKafkaListenerContainerFactory<>();
+        factory.setConsumerFactory(avroConsumerFactory());
         
         // Configure container properties
         ContainerProperties containerProps = factory.getContainerProperties();
@@ -152,7 +156,7 @@ public class KafkaConfig {
         factory.getContainerProperties().setConsumerRebalanceListener(new ConsumerRebalanceListener() {
             @Override
             public void onPartitionsRevoked(Collection<TopicPartition> partitions) {
-                log.info("Consumer group rebalancing - Partitions being revoked:");
+                log.info("AVRO Consumer group rebalancing - Partitions being revoked:");
                 partitions.forEach(partition -> 
                     log.info("  - Topic: {}, Partition: {}", 
                         partition.topic(), partition.partition())
@@ -161,7 +165,7 @@ public class KafkaConfig {
 
             @Override
             public void onPartitionsAssigned(Collection<TopicPartition> partitions) {
-                log.info("Consumer group rebalancing - New partitions assigned:");
+                log.info("AVRO Consumer group rebalancing - New partitions assigned:");
                 partitions.forEach(partition -> 
                     log.info("  - Topic: {}, Partition: {}", 
                         partition.topic(), partition.partition())

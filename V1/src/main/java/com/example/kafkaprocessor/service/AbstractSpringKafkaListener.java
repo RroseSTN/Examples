@@ -9,36 +9,42 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry;
 import org.springframework.kafka.listener.MessageListenerContainer;
 import org.springframework.kafka.support.Acknowledgment;
-import org.apache.kafka.clients.consumer.Consumer;
-import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import reactor.core.publisher.Mono;
 
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 @Log4j2
-public abstract class AbstractSpringKafkaService {
-    
+public abstract class AbstractSpringKafkaListener {
+
     @Value("${kafka.topic.partitions}")
     private int partitionCount;
-    
+
     @Value("${kafka.topic.route-away.shutdown-timeout}")
     private int shutdownTimeoutMs;
-    
-    // Removed unused retry configuration fields since we're using network-level retry
-    
-    @Autowired
-    private DBRepository dbRepository;
+
+    @Value("${kafka.topic.route-away.inflight-wait-time-mins}")
+    private int inflightWaitTimeMins;
+
+    @Value("${kafka.retry.max-attempts}")
+    private int maxRetryAttempts;
+
+    @Value("${kafka.listener.id}")
+    private String listenerId;
 
     @Autowired
-    private KafkaListenerEndpointRegistry kafkaListenerEndpointRegistry;
-    
+    protected DBRepository dbRepository;
+
+    @Autowired
+    private KafkaListenerEndpointRegistry registry;
+
     private final AtomicInteger messageProcessingCount = new AtomicInteger(0);
     private final AtomicBoolean routeAwayFlag = new AtomicBoolean(false);
-    
+
     @PostConstruct
     public void init() {
         // Check initial route away flag state
@@ -54,36 +60,30 @@ public abstract class AbstractSpringKafkaService {
         
         log.info("Kafka message processor initialized with:");
         log.info("- Shutdown timeout: {} ms", shutdownTimeoutMs);
+        log.info("- In-flight wait timeout: {} minutes", inflightWaitTimeMins);
         log.info("- Manual commit mode enabled");
-        log.info("- Network-level retry enabled");
+        log.info("- Max retry attempts: {}", maxRetryAttempts);
         log.info("- Initial RouteAwayFlag: {}", routeAwayFlag.get());
     }
-    
+
     private void pauseAllContainers() {
-        kafkaListenerEndpointRegistry.getListenerContainers().forEach(container -> {
+        registry.getListenerContainers().forEach(container -> {
             container.pause();
             log.info("Container {} paused due to RouteAwayFlag=true", container.getListenerId());
         });
     }
-    
+
     private void resumeAllContainers() {
-        kafkaListenerEndpointRegistry.getListenerContainers().forEach(container -> {
+        registry.getListenerContainers().forEach(container -> {
             container.resume();
             log.info("Container {} resumed due to RouteAwayFlag=false", container.getListenerId());
         });
     }
-    
-    // No RetryableTopic annotation as we handle network retries at the container level
-    @KafkaListener(
-            topics = "#{@kafkaTopicName}",
-            containerFactory = "kafkaListenerContainerFactory",
-            concurrency = "#{@kafkaListenerConcurrency}"
-    )
-    public Mono<Void> processMessage(ConsumerRecord<String, String> record, Acknowledgment acknowledgment, Consumer<?, ?> consumer) {
-        // Log partition assignment when processing starts
+
+    protected Mono<Void> processMessage(ConsumerRecord<String, String> record, Acknowledgment acknowledgment) {
         log.debug("Processing message from Topic: {}, Partition: {}, Offset: {}", 
                 record.topic(), record.partition(), record.offset());
-                
+
         if (routeAwayFlag.get()) {
             log.info("Route away flag is true, skipping message processing");
             return Mono.empty();
@@ -95,62 +95,68 @@ public abstract class AbstractSpringKafkaService {
             String message = record.value();
             
             return receiveEvent(applicationTraceId, message)
-                    .flatMap(result -> {
-                        if ("Success".equals(result.getEventProcessorResultStatus())) {
-                            return executeReceive(applicationTraceId, result.getCommand());
-                        }
+                .flatMap(result -> {
+                    if (!"Success".equals(result.getEventProcessorResultStatus())) {
+                        log.error("Failed to receive message for trace ID: {}: {}", applicationTraceId, result.getMessage());
                         return Mono.just(result);
-                    })
-                    .flatMap(result -> {
-                        if ("Success".equals(result.getEventProcessorResultStatus())) {
-                            return acceptEvent(applicationTraceId, result.getCommand());
-                        }
+                    }
+                    return validateEvent(applicationTraceId, result.getCommand());
+                })
+                .flatMap(result -> {
+                    if (!"Success".equals(result.getEventProcessorResultStatus())) {
+                        log.error("Failed to validate message for trace ID: {}: {}", applicationTraceId, result.getMessage());
                         return Mono.just(result);
-                    })
-                    .flatMap(result -> {
-                        if ("Success".equals(result.getEventProcessorResultStatus())) {
-                            return processEvent(applicationTraceId, result.getCommand());
-                        }
+                    }
+                    return executeReceive(applicationTraceId, result.getCommand());
+                })
+                .flatMap(result -> {
+                    if (!"Success".equals(result.getEventProcessorResultStatus())) {
+                        log.error("Failed to execute message for trace ID: {}: {}", applicationTraceId, result.getMessage());
                         return Mono.just(result);
-                    })
-                    .flatMap(result -> {
-                        if ("Success".equals(result.getEventProcessorResultStatus())) {
-                            return validateEvent(applicationTraceId, result.getCommand());
-                        }
+                    }
+                    return acceptEvent(applicationTraceId, result.getCommand());
+                })
+                .flatMap(result -> {
+                    if (!"Success".equals(result.getEventProcessorResultStatus())) {
+                        log.error("Failed to accept message for trace ID: {}: {}", applicationTraceId, result.getMessage());
                         return Mono.just(result);
-                    })
-                    .map(result -> {
-                        if ("Success".equals(result.getEventProcessorResultStatus())) {
-                            acknowledgment.acknowledge();
-                            log.debug("Message acknowledged for partition {} offset {}", 
-                                    record.partition(), record.offset());
-                        }
-                        return result;
-                    })
-                    .doFinally(signalType -> {
-                        int remainingMessages = messageProcessingCount.decrementAndGet();
-                        // If route away flag is false and this was the last message, resume consumption
-                        if (remainingMessages == 0 && !routeAwayFlag.get()) {
-                            log.info("All in-flight messages completed - Resuming consumers");
-                            resumeAllContainers();
-                        }
-                    })
-                    .onErrorResume(e -> {
-                        messageProcessingCount.decrementAndGet();
-                        log.error("Error in message processing: {}", e.getMessage(), e);
+                    }
+                    return processEvent(applicationTraceId, result.getCommand());
+                })
+                .doOnNext(result -> {
+                    if ("Success".equals(result.getEventProcessorResultStatus())) {
+                        log.info("Message processed successfully for trace ID: {}", applicationTraceId);
+                        acknowledgment.acknowledge();
+                    } else {
+                        log.error("Failed to process message for trace ID: {}: {}", applicationTraceId, result.getMessage());
+                        dbRepository.saveFailedMessage(record, result.getMessage(), 0, applicationTraceId);
+                        acknowledgment.acknowledge();
+                    }
+                })
+                .doFinally(signalType -> {
+                    int remainingMessages = messageProcessingCount.decrementAndGet();
+                    // If route away flag is false and this was the last message, resume consumption
+                    if (remainingMessages == 0 && !routeAwayFlag.get()) {
+                        log.info("All in-flight messages completed - Resuming consumers");
+                        resumeAllContainers();
+                    }
+                })
+                .onErrorResume(e -> {
+                    messageProcessingCount.decrementAndGet();
+                    log.error("Error in message processing: {}", e.getMessage(), e);
+                    
+                    dbRepository.saveFailedMessage(record, e.getMessage(), 
+                        record.headers().lastHeader("kafka_retryCount") != null ? 
+                            Integer.parseInt(new String(record.headers().lastHeader("kafka_retryCount").value())) : 0,
+                        applicationTraceId);
                         
-                        // Store failed message in database after all retries are exhausted
-                        dbRepository.saveFailedMessage(record, e.getMessage(), 
-                            record.headers().lastHeader("kafka_retryCount") != null ? 
-                                Integer.parseInt(new String(record.headers().lastHeader("kafka_retryCount").value())) : 0,
-                            applicationTraceId);
-                            
-                        return Mono.empty();
-                    })
-                    .then();
+                    return Mono.empty();
+                })
+                .then();
         });
     }
-    
+
+    // Abstract methods to be implemented by concrete classes
     @Scheduled(fixedRateString = "${kafka.topic.route-away.check-interval}")
     public void checkRouteAwayFlag() {
         dbRepository.getRouteAwayFlag()
@@ -182,7 +188,7 @@ public abstract class AbstractSpringKafkaService {
                     }
                 });
     }
-    
+
     private void logCurrentAssignment(MessageListenerContainer container) {
         log.info("Container {} status - ID: {}, Running: {}, Paused: {}", 
             container.getListenerId(),
@@ -190,10 +196,10 @@ public abstract class AbstractSpringKafkaService {
             container.isRunning(),
             container.isContainerPaused());
     }
-    
+
     @Scheduled(fixedRateString = "${app.processing.metrics.reporting-interval}")
     public void reportKafkaMetrics() {
-        kafkaListenerEndpointRegistry.getListenerContainers().forEach(container -> {
+        registry.getListenerContainers().forEach(container -> {
             log.info("=== Kafka Consumer Status Report ===");
             log.info("Container ID: {}", container.getListenerId());
             log.info("Consumer Group: {}", container.getGroupId());
@@ -205,11 +211,41 @@ public abstract class AbstractSpringKafkaService {
             log.info("=====================================");
         });
     }
-    
+
+    @PreDestroy
+    public void onDestroy() {
+        log.info("Shutting down Kafka listener - Waiting for in-flight messages to complete...");
+        routeAwayFlag.set(true);
+        pauseAllContainers();
+
+        // Wait for in-flight messages to complete or timeout after configured minutes
+        long startTime = System.currentTimeMillis();
+        long timeoutMs = inflightWaitTimeMins * 60 * 1000L; // Convert minutes to milliseconds
+        
+        while (messageProcessingCount.get() > 0 && (System.currentTimeMillis() - startTime) < timeoutMs) {
+            try {
+                log.info("Waiting for {} in-flight messages to complete...", messageProcessingCount.get());
+                Thread.sleep(1000); // Check every second
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("Shutdown interrupted while waiting for in-flight messages");
+                break;
+            }
+        }
+
+        if (messageProcessingCount.get() > 0) {
+            log.warn("Shutdown timeout reached with {} messages still in-flight", messageProcessingCount.get());
+        } else {
+            log.info("All in-flight messages completed successfully");
+        }
+        
+        log.info("Kafka listener shutdown complete");
+    }
+
     // Abstract methods to be implemented by concrete classes
     public abstract Mono<EventProcessorResult> receiveEvent(String applicationTraceId, String message);
+    public abstract Mono<EventProcessorResult> validateEvent(String applicationTraceId, Command command);
     public abstract Mono<EventProcessorResult> executeReceive(String applicationTraceId, Command command);
     public abstract Mono<EventProcessorResult> acceptEvent(String applicationTraceId, Command command);
     public abstract Mono<EventProcessorResult> processEvent(String applicationTraceId, Command command);
-    public abstract Mono<EventProcessorResult> validateEvent(String applicationTraceId, Command command);
 }
